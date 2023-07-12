@@ -46,7 +46,7 @@ def _load_configs() -> (SignalConfig, SnsConfig):
     return signal_config, sns_config
 
 
-def _send_to_signal_group(message: str, signal_config: SignalConfig):
+def _send_to_signal_group(message: str, signal_config: SignalConfig, http_session: requests.Session):
     payload = {
         "message": message,
         "number": signal_config.signal_phone_number,
@@ -54,9 +54,16 @@ def _send_to_signal_group(message: str, signal_config: SignalConfig):
     }
     app.logger.debug(f"{payload=}")
 
-    resp = requests.post(
+    resp = http_session.post(
         f"http://{signal_config.signal_host}/v2/send",
         json=payload
+    )
+    resp.raise_for_status()
+
+
+def _sync_signal(signal_config: SignalConfig, http_session: requests.Session):
+    resp = http_session.get(
+        f"http://{signal_config.signal_host}/v1/receive/{signal_config.signal_phone_number}",
     )
     resp.raise_for_status()
 
@@ -86,7 +93,9 @@ def sns_notification():
     {sns_message['Message']}
     """
     app.logger.debug(f"notification_message=\n{notification_message}")
-    _send_to_signal_group(notification_message, signal_config)
+    with requests.Session() as http_session:
+        _sync_signal(signal_config, http_session)
+        _send_to_signal_group(notification_message, signal_config, http_session)
 
     # Return a response to acknowledge receipt of the message
     return f'Notification received and sent to Signal Group', 200
